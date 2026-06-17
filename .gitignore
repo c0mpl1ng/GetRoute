@@ -1,0 +1,33 @@
+# Binaries
+bin/
+
+# Test output
+test_output/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Dependencies
+vendor/
+
+# Temp
+tmp/
+temp/
