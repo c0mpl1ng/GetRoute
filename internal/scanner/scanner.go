@@ -1,8 +1,9 @@
 package scanner
 
 import (
-	"archive/zip"
+	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,16 +13,16 @@ import (
 )
 
 type classTask struct {
-	f    *zip.File
+	name string
 	data []byte
 }
 
 // Scanner orchestrates the archive scanning process.
 type Scanner struct {
-	MaxDepth     int
-	MaxWorkers   int
-	Verbose      bool
-	handler      *archive.NestedArchiveHandler
+	MaxDepth   int
+	MaxWorkers int
+	Verbose    bool
+	handler    *archive.NestedArchiveHandler
 }
 
 // NewScanner creates a new Scanner.
@@ -148,7 +149,7 @@ func (s *Scanner) scanArchive(ar *archive.ArchiveReader, depth int, result *Scan
 				}
 				continue
 			}
-			classTasks = append(classTasks, classTask{f: f, data: data})
+			classTasks = append(classTasks, classTask{name: name, data: data})
 		}
 	}
 
@@ -156,6 +157,113 @@ func (s *Scanner) scanArchive(ar *archive.ArchiveReader, depth int, result *Scan
 	if len(classTasks) > 0 {
 		s.parseClasses(classTasks, result, ar.Name())
 	}
+}
+
+// ScanDir scans a directory tree and returns a ScanResult with all discovered artifacts.
+// It walks the directory for .class files, XML configs, MANIFEST.MF, and nested .jar/.war files.
+func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
+	absPath, err := filepath.Abs(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve directory path: %w", err)
+	}
+
+	if s.Verbose {
+		log.Printf("[SCAN] Processing directory: %s", absPath)
+	}
+
+	result := &ScanResult{
+		Classes:     make(map[string]*classfile.ClassFile),
+		XMLFiles:    make(map[string][]byte),
+		ArchiveName: filepath.Base(absPath),
+	}
+
+	var classTasks []classTask
+
+	err = filepath.Walk(absPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+
+		relPath, _ := filepath.Rel(absPath, path)
+		relPath = filepath.ToSlash(relPath)
+
+		lowerName := strings.ToLower(info.Name())
+
+		// Handle nested jar/war files recursively.
+		if strings.HasSuffix(lowerName, ".jar") || strings.HasSuffix(lowerName, ".war") {
+			result.JarNames = append(result.JarNames, info.Name())
+			innerAr, err := archive.OpenArchive(path)
+			if err != nil {
+				if s.Verbose {
+					log.Printf("[WARN] Skip archive %s: %v", relPath, err)
+				}
+				return nil
+			}
+			s.scanArchive(innerAr, 1, result)
+			innerAr.Close()
+			return nil
+		}
+
+		// Handle manifest.
+		if archive.IsManifest(relPath) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			mf, err := archive.ParseManifest(data)
+			if err == nil {
+				result.Manifest = mf
+			}
+			return nil
+		}
+
+		// Handle XML files.
+		if archive.IsXMLFile(relPath) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				if s.Verbose {
+					log.Printf("[WARN] Failed to read XML %s: %v", relPath, err)
+				}
+				return nil
+			}
+			result.XMLFiles[relPath] = data
+			return nil
+		}
+
+		// Handle class files.
+		if archive.IsClassFile(relPath) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				if s.Verbose {
+					log.Printf("[WARN] Failed to read class %s: %v", relPath, err)
+				}
+				return nil
+			}
+			classTasks = append(classTasks, classTask{name: relPath, data: data})
+			return nil
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("walk directory %s: %w", absPath, err)
+	}
+
+	// Parse class files using worker pool.
+	if len(classTasks) > 0 {
+		s.parseClasses(classTasks, result, filepath.Base(absPath))
+	}
+
+	if s.Verbose {
+		log.Printf("[SCAN] %s: %d classes, %d XML files, %d jars",
+			absPath, len(result.Classes), len(result.XMLFiles), len(result.JarNames))
+	}
+
+	return result, nil
 }
 
 func (s *Scanner) parseClasses(tasks []classTask, result *ScanResult, archiveName string) {
@@ -172,10 +280,10 @@ func (s *Scanner) parseClasses(tasks []classTask, result *ScanResult, archiveNam
 		go func() {
 			defer wg.Done()
 			for t := range taskCh {
-				cf, err := classfile.ReadClassFile(t.data, archiveName, t.f.Name)
+				cf, err := classfile.ReadClassFile(t.data, archiveName, t.name)
 				if err != nil {
 					if s.Verbose {
-						log.Printf("[WARN] Parse class %s: %v", t.f.Name, err)
+						log.Printf("[WARN] Parse class %s: %v", t.name, err)
 					}
 					continue
 				}

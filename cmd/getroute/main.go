@@ -26,7 +26,7 @@ func main() {
 		verbose bool
 	)
 
-	flag.StringVar(&input, "input", "", "Input file path (jar/war/zip)")
+	flag.StringVar(&input, "input", "", "Input file (jar/war/zip) or directory path")
 	flag.StringVar(&output, "output", ".", "Output directory")
 	flag.IntVar(&threads, "threads", runtime.NumCPU(), "Number of concurrent workers")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
@@ -39,22 +39,30 @@ func main() {
 	}
 
 	if len(inputs) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: getroute [flags] <file.jar|file.war|file.zip>...\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: GetRoute [flags] <file.jar|file.war|file.zip|directory>...\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  getroute -input app.jar\n")
-		fmt.Fprintf(os.Stderr, "  getroute -input app.war -output ./result\n")
-		fmt.Fprintf(os.Stderr, "  getroute -input app.zip -threads 20\n")
-		fmt.Fprintf(os.Stderr, "  getroute -input app.jar -verbose\n")
+		fmt.Fprintf(os.Stderr, "  GetRoute -input app.jar\n")
+		fmt.Fprintf(os.Stderr, "  GetRoute -input app.war -output ./result\n")
+		fmt.Fprintf(os.Stderr, "  GetRoute -input ./target/classes -verbose\n")
+		fmt.Fprintf(os.Stderr, "  GetRoute -input app.jar -threads 20\n")
 		os.Exit(1)
 	}
 
-	// Verify input files exist.
+	// Separate inputs into files and directories.
+	var fileInputs []string
+	var dirInputs []string
 	for _, f := range inputs {
-		if _, err := os.Stat(f); os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "Error: input file not found: %s\n", f)
+		info, err := os.Stat(f)
+		if os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "Error: input not found: %s\n", f)
 			os.Exit(1)
+		}
+		if info.IsDir() {
+			dirInputs = append(dirInputs, f)
+		} else {
+			fileInputs = append(fileInputs, f)
 		}
 	}
 
@@ -70,10 +78,11 @@ func main() {
 		log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 		log.SetPrefix("[GETROUTE] ")
 		log.Printf("Starting analysis with %d threads", threads)
-		log.Printf("Input files: %v", inputs)
+		log.Printf("Input files: %v", fileInputs)
+		log.Printf("Input directories: %v", dirInputs)
 	}
 
-	// Phase 1: Scan archives.
+	// Phase 1: Scan inputs.
 	scan, err := scanner.NewScanner(2, threads, verbose)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -81,10 +90,21 @@ func main() {
 	}
 	defer scan.Cleanup()
 
-	results, err := scan.ScanAll(inputs)
+	// Phase 1a: Scan archives.
+	results, err := scan.ScanAll(fileInputs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error scanning archives: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Phase 1b: Scan directories.
+	for _, d := range dirInputs {
+		dirResult, err := scan.ScanDir(d)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error scanning directory %s: %v\n", d, err)
+			os.Exit(1)
+		}
+		results = append(results, dirResult)
 	}
 
 	if verbose {
@@ -92,7 +112,7 @@ func main() {
 		for _, r := range results {
 			totalClasses += len(r.Classes)
 		}
-		log.Printf("Scan complete: %d archives, %d classes", len(results), totalClasses)
+		log.Printf("Scan complete: %d inputs, %d classes", len(results), totalClasses)
 	}
 
 	// Phase 2: Build extraction context.
