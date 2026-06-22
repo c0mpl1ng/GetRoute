@@ -78,17 +78,13 @@ func (e *SpringMVCExtractor) Extract(ctx *Context) ([]model.RouteInfo, []model.C
 		// Extract routes from methods.
 		for _, method := range cf.Methods {
 			methodAnnotations := method.MethodAnnotations(cf.ConstantPool)
+
+			// Skip methods without any HTTP mapping annotation.
+			if !e.hasMappingAnnotation(methodAnnotations) {
+				continue
+			}
+
 			httpMethods, methodPaths := e.extractMethodPaths(methodAnnotations)
-
-			if len(methodPaths) == 0 && len(basePaths) == 0 {
-				continue
-			}
-
-			// If no method-level path annotations, but class has paths, skip non-HTTP methods.
-			if len(methodPaths) == 0 && len(basePaths) > 0 {
-				// Methods without annotations on a controller are not routes.
-				continue
-			}
 
 			for _, basePath := range basePaths {
 				for _, methodPath := range methodPaths {
@@ -125,12 +121,6 @@ func (e *SpringMVCExtractor) springType(annotations []classfile.ParsedAnnotation
 			return "Controller"
 		case springRestControllerDesc:
 			return "RestController"
-		case springServiceDesc:
-			return "Service"
-		case springRepositoryDesc:
-			return "Repository"
-		case springComponentDesc:
-			return "Component"
 		}
 	}
 	return ""
@@ -225,6 +215,18 @@ func (e *SpringMVCExtractor) extractPathValues(ann classfile.ParsedAnnotation) [
 		paths = []string{""}
 	}
 	return paths
+}
+
+// hasMappingAnnotation returns true if the method has any HTTP mapping annotation.
+func (e *SpringMVCExtractor) hasMappingAnnotation(annotations []classfile.ParsedAnnotation) bool {
+	for _, ann := range annotations {
+		switch ann.Type {
+		case springRequestMappingDesc, springGetMappingDesc, springPostMappingDesc,
+			springPutMappingDesc, springDeleteMappingDesc, springPatchMappingDesc:
+			return true
+		}
+	}
+	return false
 }
 
 func (e *SpringMVCExtractor) extractPackage(className string) string {

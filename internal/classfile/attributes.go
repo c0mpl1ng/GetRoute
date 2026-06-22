@@ -59,26 +59,36 @@ func FindAttribute(attrs []AttributeInfo, name string) *AttributeInfo {
 }
 
 // ClassAnnotations returns parsed class-level annotations.
+// Checks RuntimeVisibleAnnotations first, then falls back to RuntimeInvisibleAnnotations.
 func (cf *ClassFile) ClassAnnotations() []ParsedAnnotation {
-	for _, attr := range cf.Attributes {
-		if attr.Name == AttrRuntimeVisibleAnnotations {
-			annotations, err := ParseAnnotations(attr.Data, cf.ConstantPool)
-			if err == nil {
-				return annotations
-			}
-		}
-	}
-	return nil
+	return parseAnnotationAttrs(cf.Attributes, cf.ConstantPool)
 }
 
 // MethodAnnotations returns parsed method-level annotations for a method.
+// Checks RuntimeVisibleAnnotations first, then falls back to RuntimeInvisibleAnnotations.
 func (m *MethodInfo) MethodAnnotations(cp *ConstantPool) []ParsedAnnotation {
-	for _, attr := range m.Attributes {
-		if attr.Name == AttrRuntimeVisibleAnnotations {
+	return parseAnnotationAttrs(m.Attributes, cp)
+}
+
+// parseAnnotationAttrs searches a list of attributes for annotation data.
+// Prefers RuntimeVisibleAnnotations, falls back to RuntimeInvisibleAnnotations.
+func parseAnnotationAttrs(attrs []AttributeInfo, cp *ConstantPool) []ParsedAnnotation {
+	var invisible []byte
+	for _, attr := range attrs {
+		switch attr.Name {
+		case AttrRuntimeVisibleAnnotations:
 			annotations, err := ParseAnnotations(attr.Data, cp)
 			if err == nil {
 				return annotations
 			}
+		case AttrRuntimeInvisibleAnnotations:
+			invisible = attr.Data
+		}
+	}
+	if invisible != nil {
+		annotations, err := ParseAnnotations(invisible, cp)
+		if err == nil {
+			return annotations
 		}
 	}
 	return nil

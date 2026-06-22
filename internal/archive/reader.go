@@ -125,6 +125,11 @@ func IsClassFile(name string) bool {
 	return strings.HasSuffix(strings.ToLower(name), ".class")
 }
 
+// IsJavaFile returns true if the entry is a .java source file.
+func IsJavaFile(name string) bool {
+	return strings.HasSuffix(strings.ToLower(name), ".java")
+}
+
 // IsXMLFile returns true if the entry is a relevant XML config file.
 func IsXMLFile(name string) bool {
 	lower := strings.ToLower(name)

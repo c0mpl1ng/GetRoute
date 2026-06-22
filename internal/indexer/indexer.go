@@ -109,14 +109,29 @@ func deduplicateClasses(classes []model.ClassInfo) []model.ClassInfo {
 }
 
 func deduplicateComponents(components []model.ComponentInfo) []model.ComponentInfo {
-	seen := make(map[string]bool)
+	seen := make(map[string]int) // maps component name to index in result
 	var result []model.ComponentInfo
 	for _, c := range components {
-		if seen[c.Name] {
-			continue
+		if idx, ok := seen[c.Name]; ok {
+			// Merge jars from duplicate component entries.
+			jarSet := make(map[string]bool)
+			for _, j := range result[idx].Jars {
+				jarSet[j] = true
+			}
+			for _, j := range c.Jars {
+				if !jarSet[j] {
+					result[idx].Jars = append(result[idx].Jars, j)
+				}
+			}
+			result[idx].Source = strings.Join(result[idx].Jars, ", ")
+			// Keep the higher version.
+			if result[idx].Version == "" && c.Version != "" {
+				result[idx].Version = c.Version
+			}
+		} else {
+			seen[c.Name] = len(result)
+			result = append(result, c)
 		}
-		seen[c.Name] = true
-		result = append(result, c)
 	}
 	return result
 }

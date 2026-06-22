@@ -18,13 +18,13 @@ type ComponentResult struct {
 
 // DetectComponents scans jar filenames for known components.
 func DetectComponents(jarNames []string) []model.ComponentInfo {
-	// Deduplicate jar names.
-	seen := make(map[string]bool)
+	// Deduplicate jar names by base name, keeping original path.
+	baseToOriginal := make(map[string]string)
 	var unique []string
 	for _, name := range jarNames {
 		base := filepath.Base(name)
-		if !seen[base] {
-			seen[base] = true
+		if _, ok := baseToOriginal[base]; !ok {
+			baseToOriginal[base] = name
 			unique = append(unique, base)
 		}
 	}
@@ -46,8 +46,9 @@ func DetectComponents(jarNames []string) []model.ComponentInfo {
 			}
 
 			key := cp.Name
+			originalName := baseToOriginal[jarName]
 			if existing, ok := componentJars[key]; ok {
-				existing.Jars = append(existing.Jars, jarName)
+				existing.Jars = append(existing.Jars, originalName)
 				if existing.Version == "" && version != "" {
 					existing.Version = version
 				}
@@ -56,14 +57,14 @@ func DetectComponents(jarNames []string) []model.ComponentInfo {
 					Name:    cp.Name,
 					Type:    cp.Category,
 					Version: version,
-					Jars:    []string{jarName},
+					Jars:    []string{originalName},
 				}
 			}
 			break // One jar matches only one component (first match wins).
 		}
 
 		// Also check for unversioned framework jars that don't match the regex.
-		checkUnversionedJars(componentJars, jarName)
+		checkUnversionedJars(componentJars, jarName, baseToOriginal[jarName])
 	}
 
 	// Convert to model.ComponentInfo, sorted by type then name.
@@ -88,7 +89,7 @@ func DetectComponents(jarNames []string) []model.ComponentInfo {
 	return results
 }
 
-func checkUnversionedJars(componentJars map[string]*ComponentResult, jarName string) {
+func checkUnversionedJars(componentJars map[string]*ComponentResult, jarName, originalName string) {
 	lower := strings.ToLower(jarName)
 	// Some jars don't follow the standard name-version.jar pattern.
 	unversioned := map[string]string{
@@ -123,7 +124,7 @@ func checkUnversionedJars(componentJars map[string]*ComponentResult, jarName str
 					Name:    name,
 					Type:    "Utility",
 					Version: "",
-					Jars:    []string{jarName},
+					Jars:    []string{originalName},
 				}
 			}
 		}

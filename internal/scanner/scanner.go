@@ -47,6 +47,7 @@ func (s *Scanner) Cleanup() {
 // ScanAll scans all input archives and returns aggregated results.
 func (s *Scanner) ScanAll(inputs []string) ([]*ScanResult, error) {
 	var results []*ScanResult
+	wd := getwd()
 
 	for _, input := range inputs {
 		ar, err := archive.OpenArchive(input)
@@ -54,32 +55,34 @@ func (s *Scanner) ScanAll(inputs []string) ([]*ScanResult, error) {
 			return nil, err
 		}
 
+		relPath := relPathFromCWD(wd, input)
+
 		result := &ScanResult{
 			Classes:     make(map[string]*classfile.ClassFile),
 			XMLFiles:    make(map[string][]byte),
-			ArchiveName: ar.Name(),
+			ArchiveName: relPath,
 		}
 
 		if s.Verbose {
-			log.Printf("[SCAN] Processing archive: %s", ar.Name())
+			log.Printf("[SCAN] Processing archive: %s", relPath)
 		}
 
 		// Scan the archive to collect class files, XML, manifest, jar names.
-		s.scanArchive(ar, 0, result)
+		s.scanArchive(ar, 0, result, relPath)
 		ar.Close()
 
 		results = append(results, result)
 
 		if s.Verbose {
 			log.Printf("[SCAN] %s: %d classes, %d XML files, %d jars",
-				ar.Name(), len(result.Classes), len(result.XMLFiles), len(result.JarNames))
+				relPath, len(result.Classes), len(result.XMLFiles), len(result.JarNames))
 		}
 	}
 
 	return results, nil
 }
 
-func (s *Scanner) scanArchive(ar *archive.ArchiveReader, depth int, result *ScanResult) {
+func (s *Scanner) scanArchive(ar *archive.ArchiveReader, depth int, result *ScanResult, sourcePrefix string) {
 	if depth > s.MaxDepth {
 		return
 	}
@@ -103,15 +106,17 @@ func (s *Scanner) scanArchive(ar *archive.ArchiveReader, depth int, result *Scan
 				}
 				continue
 			}
-			result.JarNames = append(result.JarNames, filepath.Base(name))
-			s.scanArchive(innerAr, depth+1, result)
+			jarBase := normalizeJarName(filepath.Base(name))
+			result.JarNames = append(result.JarNames, sourcePrefix+"!"+jarBase)
+			s.scanArchive(innerAr, depth+1, result, sourcePrefix+"!"+jarBase)
 			innerAr.Close()
 			continue
 		}
 
 		// Track jar names for component detection.
 		if strings.HasSuffix(strings.ToLower(name), ".jar") {
-			result.JarNames = append(result.JarNames, filepath.Base(name))
+			jarBase := normalizeJarName(filepath.Base(name))
+			result.JarNames = append(result.JarNames, sourcePrefix+"!"+jarBase)
 		}
 
 		// Handle manifest.
@@ -151,11 +156,23 @@ func (s *Scanner) scanArchive(ar *archive.ArchiveReader, depth int, result *Scan
 			}
 			classTasks = append(classTasks, classTask{name: name, data: data})
 		}
+
+		// Handle Java source files.
+		if archive.IsJavaFile(name) {
+			data, err := ar.ReadEntry(f)
+			if err != nil {
+				if s.Verbose {
+					log.Printf("[WARN] Failed to read java source %s: %v", name, err)
+				}
+				continue
+			}
+			classTasks = append(classTasks, classTask{name: name, data: data})
+		}
 	}
 
 	// Parse class files using worker pool.
 	if len(classTasks) > 0 {
-		s.parseClasses(classTasks, result, ar.Name())
+		s.parseClasses(classTasks, result, sourcePrefix)
 	}
 }
 
@@ -167,6 +184,9 @@ func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
 		return nil, fmt.Errorf("resolve directory path: %w", err)
 	}
 
+	wd := getwd()
+	relDirPath := relPathFromCWD(wd, absPath)
+
 	if s.Verbose {
 		log.Printf("[SCAN] Processing directory: %s", absPath)
 	}
@@ -174,7 +194,7 @@ func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
 	result := &ScanResult{
 		Classes:     make(map[string]*classfile.ClassFile),
 		XMLFiles:    make(map[string][]byte),
-		ArchiveName: filepath.Base(absPath),
+		ArchiveName: relDirPath,
 	}
 
 	var classTasks []classTask
@@ -192,9 +212,11 @@ func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
 
 		lowerName := strings.ToLower(info.Name())
 
-		// Handle nested jar/war files recursively.
-		if strings.HasSuffix(lowerName, ".jar") || strings.HasSuffix(lowerName, ".war") {
-			result.JarNames = append(result.JarNames, info.Name())
+		// Handle nested jar/war/zip files recursively.
+		if strings.HasSuffix(lowerName, ".jar") || strings.HasSuffix(lowerName, ".war") || strings.HasSuffix(lowerName, ".zip") {
+			jarRelPath := relPathFromCWD(wd, path)
+			jarRelPath = normalizeJarPath(jarRelPath)
+			result.JarNames = append(result.JarNames, jarRelPath)
 			innerAr, err := archive.OpenArchive(path)
 			if err != nil {
 				if s.Verbose {
@@ -202,7 +224,7 @@ func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
 				}
 				return nil
 			}
-			s.scanArchive(innerAr, 1, result)
+			s.scanArchive(innerAr, 1, result, jarRelPath)
 			innerAr.Close()
 			return nil
 		}
@@ -246,6 +268,19 @@ func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
 			return nil
 		}
 
+		// Handle Java source files.
+		if archive.IsJavaFile(relPath) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				if s.Verbose {
+					log.Printf("[WARN] Failed to read java source %s: %v", relPath, err)
+				}
+				return nil
+			}
+			classTasks = append(classTasks, classTask{name: relPath, data: data})
+			return nil
+		}
+
 		return nil
 	})
 
@@ -255,12 +290,12 @@ func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
 
 	// Parse class files using worker pool.
 	if len(classTasks) > 0 {
-		s.parseClasses(classTasks, result, filepath.Base(absPath))
+		s.parseClasses(classTasks, result, relDirPath)
 	}
 
 	if s.Verbose {
 		log.Printf("[SCAN] %s: %d classes, %d XML files, %d jars",
-			absPath, len(result.Classes), len(result.XMLFiles), len(result.JarNames))
+			relDirPath, len(result.Classes), len(result.XMLFiles), len(result.JarNames))
 	}
 
 	return result, nil
@@ -280,7 +315,13 @@ func (s *Scanner) parseClasses(tasks []classTask, result *ScanResult, archiveNam
 		go func() {
 			defer wg.Done()
 			for t := range taskCh {
-				cf, err := classfile.ReadClassFile(t.data, archiveName, t.name)
+				var cf *classfile.ClassFile
+				var err error
+				if strings.HasSuffix(strings.ToLower(t.name), ".java") {
+					cf, err = classfile.ReadJavaFile(t.data, archiveName, t.name)
+				} else {
+					cf, err = classfile.ReadClassFile(t.data, archiveName, t.name)
+				}
 				if err != nil {
 					if s.Verbose {
 						log.Printf("[WARN] Parse class %s: %v", t.name, err)
@@ -304,4 +345,55 @@ func (s *Scanner) parseClasses(tasks []classTask, result *ScanResult, archiveNam
 	for cf := range resultCh {
 		result.Classes[cf.FilePath] = cf
 	}
+}
+
+// normalizeJarName strips known source/source-zip suffixes so that
+// component detection matches against standard jar names.
+// "spring-webmvc-5.1.18.RELEASE.jar.src.zip" → "spring-webmvc-5.1.18.RELEASE.jar"
+// "spring-webmvc-5.1.18.RELEASE.jar.src"     → "spring-webmvc-5.1.18.RELEASE.jar"
+func normalizeJarName(name string) string {
+	lower := strings.ToLower(name)
+	// Strip .src.zip suffix first.
+	if strings.HasSuffix(lower, ".jar.src.zip") {
+		return name[:len(name)-len(".src.zip")]
+	}
+	// Then strip .src suffix.
+	if strings.HasSuffix(lower, ".jar.src") {
+		return name[:len(name)-len(".src")]
+	}
+	return name
+}
+
+// normalizeJarPath applies normalizeJarName to the base name of a full path,
+// preserving any archive prefix (!-separated).
+func normalizeJarPath(path string) string {
+	// Handle archive prefix: "target/app.war!spring-webmvc.jar.src.zip"
+	if idx := strings.LastIndex(path, "!"); idx >= 0 {
+		prefix := path[:idx+1]
+		base := normalizeJarName(path[idx+1:])
+		return prefix + base
+	}
+	// Direct filesystem path.
+	dir := filepath.Dir(path)
+	base := normalizeJarName(filepath.Base(path))
+	if dir == "." {
+		return base
+	}
+	return dir + "/" + base
+}
+
+func getwd() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return wd
+}
+
+func relPathFromCWD(wd, absPath string) string {
+	rel, err := filepath.Rel(wd, absPath)
+	if err != nil {
+		return filepath.Base(absPath)
+	}
+	return filepath.ToSlash(rel)
 }
