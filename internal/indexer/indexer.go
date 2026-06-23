@@ -186,9 +186,12 @@ func buildControllers(routes []model.RouteInfo) []model.ControllerInfo {
 		}
 		seen[key] = true
 		filePath := r.SourceFile
-		if r.ArchiveName != "" && r.SourceFile != "" {
+		// Only prepend ArchiveName when it identifies a sub-archive (nested jar),
+		// not when it identifies the top-level input itself.
+		// Top-level input names are simple (no "!" and no "/").
+		if r.ArchiveName != "" && !isRootArchiveName(r.ArchiveName) && r.SourceFile != "" {
 			filePath = r.ArchiveName + "!" + r.SourceFile
-		} else if r.ArchiveName != "" {
+		} else if r.ArchiveName != "" && !isRootArchiveName(r.ArchiveName) {
 			filePath = r.ArchiveName
 		}
 		result = append(result, model.ControllerInfo{
@@ -198,6 +201,13 @@ func buildControllers(routes []model.RouteInfo) []model.ControllerInfo {
 		})
 	}
 	return result
+}
+
+// isRootArchiveName returns true if the name identifies the top-level input itself
+// (a simple directory basename like "123.jar.src"), not a sub-archive path.
+// Sub-archive paths always contain "/" (directory path) or "!" (nested archive).
+func isRootArchiveName(name string) bool {
+	return !strings.Contains(name, "!") && !strings.Contains(name, "/")
 }
 
 func sortControllers(controllers []model.ControllerInfo) {

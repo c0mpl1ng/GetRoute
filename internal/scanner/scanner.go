@@ -108,7 +108,7 @@ func (s *Scanner) scanArchive(ar *archive.ArchiveReader, depth int, result *Scan
 			}
 			jarBase := normalizeJarName(filepath.Base(name))
 			result.JarNames = append(result.JarNames, sourcePrefix+"!"+jarBase)
-			s.scanArchive(innerAr, depth+1, result, sourcePrefix+"!"+jarBase)
+			s.scanArchive(innerAr, depth+1, result, sourcePrefix+"!"+stripSrcZip(filepath.Base(name)))
 			innerAr.Close()
 			continue
 		}
@@ -184,9 +184,6 @@ func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
 		return nil, fmt.Errorf("resolve directory path: %w", err)
 	}
 
-	wd := getwd()
-	relDirPath := relPathFromCWD(wd, absPath)
-
 	if s.Verbose {
 		log.Printf("[SCAN] Processing directory: %s", absPath)
 	}
@@ -194,7 +191,7 @@ func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
 	result := &ScanResult{
 		Classes:     make(map[string]*classfile.ClassFile),
 		XMLFiles:    make(map[string][]byte),
-		ArchiveName: relDirPath,
+		ArchiveName: filepath.Base(absPath),
 	}
 
 	var classTasks []classTask
@@ -204,6 +201,12 @@ func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
 			return err
 		}
 		if info.IsDir() {
+			// Track decompiled jar directories for component detection.
+			if isJarSrcDir(info.Name()) {
+				relPath, _ := filepath.Rel(absPath, path)
+				relPath = filepath.ToSlash(relPath)
+				result.JarNames = append(result.JarNames, normalizeJarPath(relPath))
+			}
 			return nil
 		}
 
@@ -214,9 +217,7 @@ func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
 
 		// Handle nested jar/war/zip files recursively.
 		if strings.HasSuffix(lowerName, ".jar") || strings.HasSuffix(lowerName, ".war") || strings.HasSuffix(lowerName, ".zip") {
-			jarRelPath := relPathFromCWD(wd, path)
-			jarRelPath = normalizeJarPath(jarRelPath)
-			result.JarNames = append(result.JarNames, jarRelPath)
+			result.JarNames = append(result.JarNames, normalizeJarPath(relPath))
 			innerAr, err := archive.OpenArchive(path)
 			if err != nil {
 				if s.Verbose {
@@ -224,7 +225,7 @@ func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
 				}
 				return nil
 			}
-			s.scanArchive(innerAr, 1, result, jarRelPath)
+			s.scanArchive(innerAr, 1, result, stripSrcZipPath(relPath))
 			innerAr.Close()
 			return nil
 		}
@@ -290,12 +291,15 @@ func (s *Scanner) ScanDir(dirPath string) (*ScanResult, error) {
 
 	// Parse class files using worker pool.
 	if len(classTasks) > 0 {
-		s.parseClasses(classTasks, result, relDirPath)
+		s.parseClasses(classTasks, result, result.ArchiveName)
 	}
+
+	// Fix ArchiveName / FilePath for classes inside decompiled jar directories.
+	fixJarSrcClasses(result)
 
 	if s.Verbose {
 		log.Printf("[SCAN] %s: %d classes, %d XML files, %d jars",
-			relDirPath, len(result.Classes), len(result.XMLFiles), len(result.JarNames))
+			result.ArchiveName, len(result.Classes), len(result.XMLFiles), len(result.JarNames))
 	}
 
 	return result, nil
@@ -380,6 +384,74 @@ func normalizeJarPath(path string) string {
 		return base
 	}
 	return dir + "/" + base
+}
+
+// stripSrcZip strips only the .src.zip suffix (not .src) for display paths.
+// "spring-webmvc.jar.src.zip" → "spring-webmvc.jar.src"
+func stripSrcZip(name string) string {
+	if strings.HasSuffix(strings.ToLower(name), ".jar.src.zip") {
+		return name[:len(name)-len(".src.zip")]
+	}
+	return name
+}
+
+// stripSrcZipPath applies stripSrcZip to the base name of a full path.
+func stripSrcZipPath(path string) string {
+	if idx := strings.LastIndex(path, "!"); idx >= 0 {
+		prefix := path[:idx+1]
+		base := stripSrcZip(path[idx+1:])
+		return prefix + base
+	}
+	dir := filepath.Dir(path)
+	base := stripSrcZip(filepath.Base(path))
+	if dir == "." {
+		return base
+	}
+	return dir + "/" + base
+}
+
+// isJarSrcDir returns true if the directory name looks like a decompiled jar
+// (e.g. "spring-core.jar.src").
+func isJarSrcDir(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".jar.src")
+}
+
+// fixJarSrcClasses adjusts ArchiveName and FilePath for classes found inside
+// decompiled jar directories (*.jar.src). The innermost .jar.src directory
+// becomes the ArchiveName and the FilePath becomes relative to it.
+func fixJarSrcClasses(result *ScanResult) {
+	for key, cf := range result.Classes {
+		idx := lastJarSrcSegment(cf.FilePath)
+		if idx < 0 {
+			continue
+		}
+		containerEnd := idx + len(".jar.src")
+		container := cf.FilePath[:containerEnd]
+		fileInContainer := cf.FilePath[containerEnd+1:] // skip "/"
+		cf.ArchiveName = container
+		cf.FilePath = fileInContainer
+		delete(result.Classes, key)
+		result.Classes[fileInContainer] = cf
+	}
+}
+
+// lastJarSrcSegment finds the last ".jar.src/" segment in path and returns
+// the index of the '.' character, or -1 if not found.
+func lastJarSrcSegment(path string) int {
+	last := -1
+	search := path
+	offset := 0
+	for {
+		idx := strings.Index(search, ".jar.src/")
+		if idx < 0 {
+			break
+		}
+		last = offset + idx
+		offset += idx + 1
+		search = search[idx+1:]
+	}
+	return last
 }
 
 func getwd() string {

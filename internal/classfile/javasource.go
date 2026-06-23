@@ -36,18 +36,12 @@ func ReadJavaFile(data []byte, archiveName, filePath string) (*ClassFile, error)
 	classBody := clean[bodyStart:bodyEnd]
 	methods, methodAnns := extractMethods(classBody, imports)
 
-	// Archive name fallback.
-	name := archiveName
-	if name == "" {
-		name = filePath
-	}
-
 	cf := &ClassFile{
 		ThisClass:      thisClass,
 		SuperClass:     superClassName,
 		InterfaceNames: interfaces,
 		Methods:        methods,
-		ArchiveName:    name,
+		ArchiveName:    archiveName,
 		FilePath:       filePath,
 	}
 
