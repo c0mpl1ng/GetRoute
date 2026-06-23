@@ -39,6 +39,13 @@ type FrameworkInfo struct {
 	Evidence  []string // Detection evidence
 }
 
+// ControllerInfo describes a controller class extracted from route analysis.
+type ControllerInfo struct {
+	FilePath  string // Controller file path relative to project root (archive!inner/path/Class.class)
+	ClassName string // Fully qualified class name (e.g., com.example.controller.UserController)
+	Framework string // Framework type: "Spring MVC", "Spring Boot", "Struts2", "JAX-RS", "Servlet", "WebWork"
+}
+
 // ComponentInfo describes a detected library/component.
 type ComponentInfo struct {
 	Name    string   // MyBatis, Log4j2, Shiro, etc.

@@ -14,6 +14,7 @@ const outputFilename = "GetRoute.xlsx"
 func Export(
 	routes []model.RouteInfo,
 	classes []model.ClassInfo,
+	controllers []model.ControllerInfo,
 	frameworks []model.FrameworkInfo,
 	components []model.ComponentInfo,
 	outputPath string,
@@ -28,6 +29,7 @@ func Export(
 	headerSty, _ := headerStyle(f)
 
 	writeRoutesSheet(f, routes, headerSty)
+	writeControllersSheet(f, controllers, headerSty)
 	writeClassesSheet(f, classes, headerSty)
 	writeFrameworkSheet(f, frameworks, headerSty)
 	writeComponentsSheet(f, components, headerSty)
@@ -68,6 +70,29 @@ func writeRoutesSheet(f *excelize.File, routes []model.RouteInfo, headerSty int)
 
 	setColumnWidths(f, sheet, headers)
 	autoFilterRange := fmt.Sprintf("A1:%s%d", colLetter(len(headers)), len(routes)+1)
+	f.AutoFilter(sheet, autoFilterRange, nil)
+}
+
+func writeControllersSheet(f *excelize.File, controllers []model.ControllerInfo, headerSty int) {
+	sheet := "Controllers"
+	f.NewSheet(sheet)
+
+	headers := []string{"FILE_PATH", "CLASS_NAME", "FRAMEWORK"}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheet, cell, h)
+		f.SetCellStyle(sheet, cell, cell, headerSty)
+	}
+
+	for i, c := range controllers {
+		row := i + 2
+		f.SetCellValue(sheet, cellName(1, row), c.FilePath)
+		f.SetCellValue(sheet, cellName(2, row), c.ClassName)
+		f.SetCellValue(sheet, cellName(3, row), c.Framework)
+	}
+
+	setColumnWidths(f, sheet, headers)
+	autoFilterRange := fmt.Sprintf("A1:%s%d", colLetter(len(headers)), len(controllers)+1)
 	f.AutoFilter(sheet, autoFilterRange, nil)
 }
 

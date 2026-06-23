@@ -203,7 +203,7 @@ func main() {
 
 	// Phase 7: Export to Excel.
 	outputFile := output + "/GetRoute.xlsx"
-	if err := exporter.Export(idx.Routes(), idx.Classes(), idx.Frameworks(), idx.Components(), outputFile); err != nil {
+	if err := exporter.Export(idx.Routes(), idx.Classes(), idx.Controllers(), idx.Frameworks(), idx.Components(), outputFile); err != nil {
 		fmt.Fprintf(os.Stderr, "Error exporting to Excel: %v\n", err)
 		os.Exit(1)
 	}
@@ -211,6 +211,7 @@ func main() {
 	fmt.Printf("Analysis complete!\n")
 	fmt.Printf("  Framework: %s\n", frameworkNames)
 	fmt.Printf("  Routes: %d\n", len(idx.Routes()))
+	fmt.Printf("  Controllers: %d\n", len(idx.Controllers()))
 	fmt.Printf("  Classes: %d\n", len(idx.Classes()))
 	fmt.Printf("  Components: %d\n", len(idx.Components()))
 	fmt.Printf("  Output: %s\n", outputFile)

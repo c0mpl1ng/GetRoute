@@ -9,10 +9,11 @@ import (
 
 // Indexer deduplicates, sorts, and normalizes route and class data.
 type Indexer struct {
-	routes     []model.RouteInfo
-	classes    []model.ClassInfo
-	frameworks []model.FrameworkInfo
-	components []model.ComponentInfo
+	routes      []model.RouteInfo
+	classes     []model.ClassInfo
+	controllers []model.ControllerInfo
+	frameworks  []model.FrameworkInfo
+	components  []model.ComponentInfo
 }
 
 // NewIndexer creates a new Indexer.
@@ -44,10 +45,12 @@ func (idx *Indexer) AddComponents(components []model.ComponentInfo) {
 func (idx *Indexer) Build() {
 	idx.routes = deduplicateRoutes(idx.routes)
 	idx.classes = deduplicateClasses(idx.classes)
+	idx.controllers = buildControllers(idx.routes)
 	idx.components = deduplicateComponents(idx.components)
 
 	sortRoutes(idx.routes)
 	sortClasses(idx.classes)
+	sortControllers(idx.controllers)
 	sortComponents(idx.components)
 }
 
@@ -59,6 +62,11 @@ func (idx *Indexer) Routes() []model.RouteInfo {
 // Classes returns the indexed classes.
 func (idx *Indexer) Classes() []model.ClassInfo {
 	return idx.classes
+}
+
+// Controllers returns the indexed controllers.
+func (idx *Indexer) Controllers() []model.ControllerInfo {
+	return idx.controllers
 }
 
 // Frameworks returns the framework info.
@@ -165,6 +173,39 @@ func sortComponents(components []model.ComponentInfo) {
 			return components[i].Type < components[j].Type
 		}
 		return components[i].Name < components[j].Name
+	})
+}
+
+func buildControllers(routes []model.RouteInfo) []model.ControllerInfo {
+	seen := make(map[string]bool)
+	var result []model.ControllerInfo
+	for _, r := range routes {
+		key := r.ClassName + "@" + r.Framework
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		filePath := r.SourceFile
+		if r.ArchiveName != "" && r.SourceFile != "" {
+			filePath = r.ArchiveName + "!" + r.SourceFile
+		} else if r.ArchiveName != "" {
+			filePath = r.ArchiveName
+		}
+		result = append(result, model.ControllerInfo{
+			FilePath:  filePath,
+			ClassName: r.ClassName,
+			Framework: r.Framework,
+		})
+	}
+	return result
+}
+
+func sortControllers(controllers []model.ControllerInfo) {
+	sort.Slice(controllers, func(i, j int) bool {
+		if controllers[i].Framework != controllers[j].Framework {
+			return controllers[i].Framework < controllers[j].Framework
+		}
+		return controllers[i].ClassName < controllers[j].ClassName
 	})
 }
 
