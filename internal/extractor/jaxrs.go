@@ -69,6 +69,7 @@ func (e *JAXRSExtractor) Extract(ctx *Context) ([]model.RouteInfo, []model.Class
 		classes = append(classes, model.ClassInfo{
 			FullName:    className,
 			Package:     extractPackageName(className),
+			FilePath:    cf.FilePath,
 			SuperClass:  FQNFromSlash(cf.SuperClass),
 			Annotations: annotationSimpleNames(classAnnotations),
 			ArchiveName: archiveName,

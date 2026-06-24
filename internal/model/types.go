@@ -16,6 +16,7 @@ type RouteInfo struct {
 type ClassInfo struct {
 	FullName    string   // com.example.controller.UserController
 	Package     string   // com.example.controller
+	FilePath    string   // Actual file path within archive (e.g., com/example/controller/UserController.class)
 	SuperClass  string   // java.lang.Object
 	Interfaces  []string // Implemented interfaces
 	Annotations []string // Class-level annotations

@@ -78,7 +78,7 @@ func (e *Struts2Extractor) Extract(ctx *Context) ([]model.RouteInfo, []model.Cla
 				MethodName:  action.ActionMethod,
 				Framework:   "Struts2",
 				SourceType:  "XML",
-				SourceFile:  name,
+				SourceFile:  ctx.FindClassFile(action.ActionClass),
 				ArchiveName: archiveName,
 			})
 		}
@@ -118,6 +118,7 @@ func (e *Struts2Extractor) Extract(ctx *Context) ([]model.RouteInfo, []model.Cla
 		classes = append(classes, model.ClassInfo{
 			FullName:    className,
 			Package:     extractPackageName(className),
+			FilePath:    cf.FilePath,
 			SuperClass:  FQNFromSlash(cf.SuperClass),
 			Annotations: annotationSimpleNames(classAnnotations),
 			SpringType:  "",

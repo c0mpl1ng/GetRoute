@@ -2,6 +2,7 @@ package extractor
 
 import (
 	"sort"
+	"strings"
 
 	"GetRoute/internal/classfile"
 	"GetRoute/internal/model"
@@ -15,6 +16,24 @@ type Context struct {
 	BootInf    bool                            // Has BOOT-INF/ directory
 	JarNames   []string                        // All jar filenames
 	ParentName string                          // Parent archive name for nested archives
+}
+
+// FindClassFile looks up a class by its fully qualified name and returns its FilePath.
+// If the class is not found in scanned files, falls back to constructing the path
+// from the class name (e.g. "com.example.Foo" -> "com/example/Foo.class").
+func (ctx *Context) FindClassFile(className string) string {
+	className = strings.TrimSpace(className)
+	if className == "" {
+		return ""
+	}
+	slashed := strings.ReplaceAll(className, ".", "/")
+	for _, cf := range ctx.Classes {
+		if cf.ThisClass == slashed {
+			return cf.FilePath
+		}
+	}
+	// Class not found in scanned files — construct standard path from class name.
+	return strings.ReplaceAll(className, ".", "/") + ".class"
 }
 
 // RouteExtractor is the interface for all framework-specific route extractors.

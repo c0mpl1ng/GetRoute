@@ -61,11 +61,11 @@ func (e *ServletExtractor) Extract(ctx *Context) ([]model.RouteInfo, []model.Cla
 		// Build servlet-name → servlet-class map.
 		servletClasses := make(map[string]string)
 		for _, s := range w.Servlets {
-			servletClasses[s.Name] = s.Class
+			servletClasses[strings.TrimSpace(s.Name)] = strings.TrimSpace(s.Class)
 		}
 
 		for _, sm := range w.ServletMaps {
-			className := servletClasses[sm.Name]
+			className := servletClasses[strings.TrimSpace(sm.Name)]
 			routes = append(routes, model.RouteInfo{
 				URL:         normalizeServletPattern(sm.Pattern),
 				HTTPMethods: nil, // All methods
@@ -73,7 +73,7 @@ func (e *ServletExtractor) Extract(ctx *Context) ([]model.RouteInfo, []model.Cla
 				MethodName:  "", // XML-defined
 				Framework:   "Servlet",
 				SourceType:  "XML",
-				SourceFile:  name,
+				SourceFile:  ctx.FindClassFile(className),
 				ArchiveName: archiveName,
 			})
 		}
@@ -81,12 +81,12 @@ func (e *ServletExtractor) Extract(ctx *Context) ([]model.RouteInfo, []model.Cla
 		// Also extract filter mappings.
 		filterClasses := make(map[string]string)
 		for _, f := range w.Filters {
-			filterClasses[f.Name] = f.Class
+			filterClasses[strings.TrimSpace(f.Name)] = strings.TrimSpace(f.Class)
 		}
 		for _, fm := range w.FilterMaps {
-			className := filterClasses[fm.Name]
+			className := filterClasses[strings.TrimSpace(fm.Name)]
 			if className == "" {
-				className = fm.Name
+				className = strings.TrimSpace(fm.Name)
 			}
 			routes = append(routes, model.RouteInfo{
 				URL:         normalizeServletPattern(fm.Pattern),
@@ -95,7 +95,7 @@ func (e *ServletExtractor) Extract(ctx *Context) ([]model.RouteInfo, []model.Cla
 				MethodName:  "",
 				Framework:   "Servlet",
 				SourceType:  "XML",
-				SourceFile:  name,
+				SourceFile:  ctx.FindClassFile(className),
 				ArchiveName: archiveName,
 			})
 		}
@@ -123,6 +123,7 @@ func (e *ServletExtractor) Extract(ctx *Context) ([]model.RouteInfo, []model.Cla
 		classes = append(classes, model.ClassInfo{
 			FullName:    className,
 			Package:     extractPackageName(className),
+			FilePath:    cf.FilePath,
 			SuperClass:  FQNFromSlash(cf.SuperClass),
 			Annotations: annotationSimpleNames(classAnnotations),
 			ArchiveName: srcJar,

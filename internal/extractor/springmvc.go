@@ -68,6 +68,7 @@ func (e *SpringMVCExtractor) Extract(ctx *Context) ([]model.RouteInfo, []model.C
 		ci := model.ClassInfo{
 			FullName:    className,
 			Package:     e.extractPackage(className),
+			FilePath:    cf.FilePath,
 			SuperClass:  strings.ReplaceAll(cf.SuperClass, "/", "."),
 			Annotations: e.annotationSimpleNames(classAnnotations),
 			SpringType:  springType,

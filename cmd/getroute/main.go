@@ -170,6 +170,7 @@ func main() {
 			idx.AddClasses([]model.ClassInfo{{
 				FullName:    className,
 				Package:     pkgName(className),
+				FilePath:    cf.FilePath,
 				SuperClass:  strings.ReplaceAll(cf.SuperClass, "/", "."),
 				ArchiveName: cf.ArchiveName,
 			}})

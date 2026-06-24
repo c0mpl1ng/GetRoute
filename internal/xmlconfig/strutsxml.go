@@ -170,11 +170,6 @@ func (a *ResolvedAction) URL() string {
 	// Add action extension (.action or .do).
 	path += a.ActionExtension
 
-	// Handle dynamic method invocation patterns: actionName!method.
-	if a.ActionMethod != "" && a.ActionMethod != a.DefaultMethod {
-		path += "!" + a.ActionMethod
-	}
-
 	return normalizePath(path)
 }
 

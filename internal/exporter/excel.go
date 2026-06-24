@@ -110,7 +110,7 @@ func writeClassesSheet(f *excelize.File, classes []model.ClassInfo, headerSty in
 	for i, c := range classes {
 		row := i + 2
 		f.SetCellValue(sheet, cellName(1, row), c.FullName)
-		f.SetCellValue(sheet, cellName(2, row), strings.ReplaceAll(c.FullName, ".", "/")+".class")
+		f.SetCellValue(sheet, cellName(2, row), c.FilePath)
 		f.SetCellValue(sheet, cellName(3, row), c.ArchiveName)
 	}
 
